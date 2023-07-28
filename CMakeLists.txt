@@ -4,6 +4,9 @@ project(UnitTest)
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 11)
 
+include_directories(include)
+file(GLOB CPP_SOURCES src/*.cpp)
+
 # Set the CLBASE variable
 set(CLBASE "/data/gc/rocksdb-secondary-cache/CacheLib/")
 
@@ -37,7 +40,7 @@ set(ENV{LD_LIBRARY_PATH} "${PREFIX}/lib:${PREFIX}/lib64:$ENV{LD_LIBRARY_PATH}")
 find_package(cachelib CONFIG REQUIRED)
 
 # Add your project source files
-add_executable(UnitTest main.cpp)
+add_executable(UnitTest main.cpp ${CPP_SOURCES})
 
 # Link cachelib to your project
 target_link_libraries(UnitTest  cachelib ${ADIOS2_LIBRARY})

@@ -19,7 +19,8 @@
 #include "adios2/common/ADIOSTypes.h"
 #include "adios2.h"
 #include <set>
-#include "json.hpp"
+#include <QueryBox.h>
+#include <CacheFunctions.h>
 #include <unordered_map>
 #include <string>
 #include <vector>
@@ -27,67 +28,9 @@
 #include <iostream>
 #include "adios2/helper/adiosFunctions.h"
 
-namespace facebook {
-    namespace cachelib_examples {
-        using Cache = cachelib::LruAllocator; // or Lru2QAllocator, or TinyLFUAllocator
-        using CacheConfig = typename Cache::Config;
-        using CacheKey = typename Cache::Key;
-        using CacheReadHandle = typename Cache::ReadHandle;
-
-// Global cache object and a default cache pool
-        std::unique_ptr<Cache> gCache_;
-        cachelib::PoolId defaultPool_;
-
-        void initializeCache() {
-            CacheConfig config;
-            config
-                    .setCacheSize(1 * 1024 * 1024 * 1024) // 1GB
-                    .setCacheName("My Use Case")
-                    .setAccessConfig(
-                            {25 /* bucket power */, 10 /* lock power */}) // assuming caching 20
-                            // million items
-                    .validate(); // will throw if bad config
-            gCache_ = std::make_unique<Cache>(config);
-            defaultPool_ =
-                    gCache_->addPool("default", gCache_->getCacheMemoryStats().cacheSize);
-        }
-
-        void destroyCache() { gCache_.reset(); }
-
-        CacheReadHandle get(CacheKey key) { return gCache_->find(key); }
-
-        bool put(CacheKey key, const std::string& value) {
-            auto handle = gCache_->allocate(defaultPool_, key, value.size());
-            if (!handle) {
-                return false; // cache may fail to evict due to too many pending writes
-            }
-            std::memcpy(handle->getMemory(), value.data(), value.size());
-            gCache_->insertOrReplace(handle);
-            return true;
-        }
-    } // namespace cachelib_examples
-} // namespace facebook
 
 using namespace facebook::cachelib_examples;
 
-
-struct QueryBox{
-    adios2::Dims start{};
-    adios2::Dims count{};
-
-    // data
-    double *data{};
-
-
-    // size
-    size_t size() const {
-        size_t s = 1;
-        for (auto& d : count) {
-            s *= d;
-        }
-        return s;
-    }
-};
 
 // Serialize QueryBox to a JSON string
 std::string serializeQueryBox(const QueryBox& box) {
@@ -227,13 +170,22 @@ std::set<QueryBox> getRemaining(const QueryBox& outer, const QueryBox& intersect
             }
 
             // second, cut from head of the first dimension
-            if (outerCopy.start[0] + outerCopy.count[0] == intersection.start[0] + intersection.count[0] and outerCopy.count[0] != intersection.count[0]){
+            if (outerCopy.start[0] != intersection.start[0]){
                 box.count[0] = intersection.start[0] - outerCopy.start[0];
                 remaining.insert(box);
+                outerCopy.count[0] = outerCopy.start[0] + outerCopy.count[0] - intersection.start[0];
                 outerCopy.start[0] = intersection.start[0];
-                outerCopy.count[0] = intersection.count[0];
                 continue;
             }
+
+//            // second, cut from head of the first dimension
+//            if (outerCopy.start[0] + outerCopy.count[0] == intersection.start[0] + intersection.count[0] and outerCopy.count[0] != intersection.count[0]){
+//                box.count[0] = intersection.start[0] - outerCopy.start[0];
+//                remaining.insert(box);
+//                outerCopy.start[0] = intersection.start[0];
+//                outerCopy.count[0] = intersection.count[0];
+//                continue;
+//            }
 
 
             // third, cut from tail of the second dimension
@@ -247,21 +199,26 @@ std::set<QueryBox> getRemaining(const QueryBox& outer, const QueryBox& intersect
             }
 
             // fourth, cut from head of the second dimension
-            if (outerCopy.start[1] + outerCopy.count[1] == intersection.start[1] + intersection.count[1]){
+            if (outerCopy.start[1] != intersection.start[1]){
                 box.count[1] = intersection.start[1] - outerCopy.start[1];
                 remaining.insert(box);
+                outerCopy.count[1] = outerCopy.start[1] + outerCopy.count[1] - intersection.start[1];
                 outerCopy.start[1] = intersection.start[1];
-                outerCopy.count[1] = intersection.count[1];
                 continue;
             }
+
+//            // fourth, cut from head of the second dimension
+//            if (outerCopy.start[1] + outerCopy.count[1] == intersection.start[1] + intersection.count[1]){
+//                box.count[1] = intersection.start[1] - outerCopy.start[1];
+//                remaining.insert(box);
+//                outerCopy.start[1] = intersection.start[1];
+//                outerCopy.count[1] = intersection.count[1];
+//                continue;
+//            }
         }
     }
     return remaining;
 }
-
-
-
-
 
 
 // if a query box is interacted with another query box, copy the data from the intersection part
@@ -283,7 +240,9 @@ void copyData(const QueryBox& outer, const QueryBox& cacheBox,const QueryBox& in
            outer.start[dim - nContDim] ==
            intersection.start[dim - nContDim] &&
            outer.count[dim - nContDim] ==
-           intersection.count[dim - nContDim])
+                   intersection.count[dim - nContDim] &&
+           outer.count[dim - nContDim] == cacheBox.count[dim - nContDim] &&
+           outer.start[dim - nContDim] == cacheBox.start[dim - nContDim])
     {
         ++nContDim;
     }
@@ -305,21 +264,19 @@ void copyData(const QueryBox& outer, const QueryBox& cacheBox,const QueryBox& in
                         (intersection.start[dim - 1] - cacheBox.start[dim - 1]) * 1;
 
     bool run = true;
+    // const cacheBox size
+    const size_t cacheBoxSize = cacheBox.size();
     while (run){
         // copy data from intersection part to data
         std::memcpy(data + start_offset, intersection.data + inOvlpBase, nContElems * sizeof(double));
         inOvlpBase += inOvlpSize;
         start_offset += blockSize;
 
-        if (inOvlpBase >= cacheBox.size()){
+        if (inOvlpBase >= cacheBoxSize or start_offset >= outer.size()){
             run = false;
         }
     }
 }
-
-
-
-
 
 int main(int argc, char** argv) {
     folly::init(&argc, &argv);
@@ -369,6 +326,16 @@ int main(int argc, char** argv) {
     queryBox4.count = {200, 100};
     queryBoxList.push_back(queryBox4);
 
+    QueryBox queryBox5;
+    queryBox5.start = {0, 200};
+    queryBox5.count = {500, 1};
+    queryBoxList.push_back(queryBox5);
+
+    QueryBox queryBox6;
+    queryBox6.start = {490, 490};
+    queryBox6.count = {400, 400};
+    queryBoxList.push_back(queryBox6);
+
 
     for (auto& queryBox : queryBoxList) {
         // print current for loop number
@@ -393,6 +360,7 @@ int main(int argc, char** argv) {
 
         std::vector<double> myDouble;
         myDouble.resize(queryBox.size());
+        myDouble.reserve(queryBox.size());
 
         // check cache
         std::string queryTypeKey = filename + inquireVariableName + std::to_string(0);
@@ -422,7 +390,7 @@ int main(int argc, char** argv) {
 
                             // copy to the final result
                             copyData(queryBox, box, intersection, myDouble.data());
-
+                            std::cout << value.size() << std::endl;
                         }
 
                         // update remaining part, union of remainingNew and remaining
@@ -458,7 +426,7 @@ int main(int argc, char** argv) {
 
         for (auto &remaining_box: remaining) {
             // print current step
-            std::cout << bpReader.CurrentStep() << std::endl;
+//            std::cout << bpReader.CurrentStep() << std::endl;
 
             x_100_position.SetSelection(
                     adios2::Box<adios2::Dims>(remaining_box.start, remaining_box.count));
@@ -479,7 +447,7 @@ int main(int argc, char** argv) {
             cacheBox.start = {0, 0};
             cacheBox.count = {0, 0};
             copyData(queryBox, remaining_box_new, remaining_box_new, myDouble.data());
-            std::cout << bpReader.CurrentStep() << std::endl;
+//            std::cout << bpReader.CurrentStep() << std::endl;
         }
         selectResult.clear();
         // insert queryBox into cacheMap
@@ -499,8 +467,8 @@ int main(int argc, char** argv) {
         assert(res);
 
         // direct read query box, to finish data correctness check
-        std::cout << bpReader.CurrentStep() << std::endl;
-        std::cout << queryBox.size() << std::endl;
+//        std::cout << bpReader.CurrentStep() << std::endl;
+//        std::cout << queryBox.size() << std::endl;
         std::vector<double> directSelectResult;
         x_100_position.SetSelection(
                 adios2::Box<adios2::Dims>(queryBox.start, queryBox.count));
