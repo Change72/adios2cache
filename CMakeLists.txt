@@ -8,7 +8,7 @@ include_directories(include)
 file(GLOB CPP_SOURCES src/*.cpp)
 
 # Set the CLBASE variable
-set(CLBASE "/data/gc/rocksdb-secondary-cache/CacheLib/")
+set(CLBASE "/data/gc/ornl/CacheLib/")
 
 set(ADIOS_DIR "/data/gc/rocksdb-index/ADIOS2/")
 include_directories(${ADIOS_DIR}/include)
@@ -35,7 +35,6 @@ set(ENV{PKG_CONFIG_PATH} "${PREFIX}/lib/pkgconfig:${PREFIX}/lib64/pkgconfig:$ENV
 # Update LD_LIBRARY_PATH
 set(ENV{LD_LIBRARY_PATH} "${PREFIX}/lib:${PREFIX}/lib64:$ENV{LD_LIBRARY_PATH}")
 
-
 # Find cachelib
 find_package(cachelib CONFIG REQUIRED)
 
@@ -47,3 +46,15 @@ target_link_libraries(UnitTest  cachelib ${ADIOS2_LIBRARY})
 
 # Set include directories for cachelib
 target_include_directories(UnitTest PRIVATE ${cachelib_INCLUDE_DIRS})
+
+
+# Add your project source files
+add_executable(CacheTest test/TestCacheLibWithNavy.cpp ${CPP_SOURCES})
+
+# Link cachelib to your project
+target_link_libraries(CacheTest  cachelib )
+
+# Set include directories for cachelib
+#message(STATUS "cachelib_INCLUDE_DIRS: ${cachelib_INCLUDE_DIRS}")
+target_include_directories(CacheTest PRIVATE ${cachelib_INCLUDE_DIRS})
+
