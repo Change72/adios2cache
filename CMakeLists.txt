@@ -58,3 +58,4 @@ target_link_libraries(CacheTest  cachelib )
 #message(STATUS "cachelib_INCLUDE_DIRS: ${cachelib_INCLUDE_DIRS}")
 target_include_directories(CacheTest PRIVATE ${cachelib_INCLUDE_DIRS})
 
+add_executable(TestNDPointsCluster test/TestNDPointsCluster.cpp ${CPP_SOURCES})
