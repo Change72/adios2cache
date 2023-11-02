@@ -55,6 +55,7 @@ del       :         0/s, found     :   0.00%
 Setting: 
   in-memory cache size: 1GB
   navy ssd config size: 1GB, half available = 500MB
+
 Test command: ./CacheTest -write=true -read=true -read_inverse=false -operation_num=100000 > ../log/testCacheLibWriteAndRead.log
 One value pair size is 16KB. Total size of 100000 key-value pair is 1.54GB, which means the beginning part will be discarded, 
 Region is 1MB
@@ -85,3 +86,32 @@ cat ../log/testCacheLibWriteAndReadInverse.log | grep "read from nvmcache" | wc 
 
 cat ../log/testCacheLibWriteAndReadInverse.log | grep "successful" | wc -l
 > 82388
+
+
+TestCacheInterface
+
+
+Test command: ./TestCacheInterface -write=true -read=true -read_inverse=false -operation_num=100000 > ../log/testCacheLibInterfaceWriteAndRead.log
+
+cat ../log/testCacheLibInterfaceWriteAndRead.log | grep "read from nvmcache" | wc -l  
+> 74920
+
+cat ../log/testCacheLibInterfaceWriteAndRead.log | grep "successful" | wc -l  
+> 74920
+
+Test command:  ./TestCacheInterface -write=false -read=true -read_inverse=true -operation_num=100000 > ../log/testCacheLibInterfaceReadAttachInverse.log
+
+cat ../log/testCacheLibInterfaceReadAttachInverse.log | grep "read from nvmcache" | wc -l  
+> 13465
+
+cat ../log/testCacheLibInterfaceReadAttachInverse.log | grep "successful" | wc -l  
+> 74920
+
+
+Test command: ./TestCacheInterface -write=true -read=true -read_inverse=true -operation_num=100000 > ../log/testCacheLibInterfaceWriteAndReadInverse.log
+
+cat ../log/testCacheLibInterfaceWriteAndReadInverse.log | grep "read from nvmcache" | wc -l
+> 15595
+
+cat ../log/testCacheLibInterfaceWriteAndReadInverse.log | grep "successful" | wc -l
+> 77050

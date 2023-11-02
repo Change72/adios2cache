@@ -38,14 +38,14 @@ set(ENV{LD_LIBRARY_PATH} "${PREFIX}/lib:${PREFIX}/lib64:$ENV{LD_LIBRARY_PATH}")
 # Find cachelib
 find_package(cachelib CONFIG REQUIRED)
 
-# Add your project source files
-add_executable(UnitTest main.cpp ${CPP_SOURCES})
+# # Add your project source files
+# add_executable(UnitTest main.cpp ${CPP_SOURCES})
 
-# Link cachelib to your project
-target_link_libraries(UnitTest  cachelib ${ADIOS2_LIBRARY})
+# # Link cachelib to your project
+# target_link_libraries(UnitTest  cachelib ${ADIOS2_LIBRARY})
 
-# Set include directories for cachelib
-target_include_directories(UnitTest PRIVATE ${cachelib_INCLUDE_DIRS})
+# # Set include directories for cachelib
+# target_include_directories(UnitTest PRIVATE ${cachelib_INCLUDE_DIRS})
 
 
 # Add your project source files
@@ -57,5 +57,16 @@ target_link_libraries(CacheTest  cachelib )
 # Set include directories for cachelib
 #message(STATUS "cachelib_INCLUDE_DIRS: ${cachelib_INCLUDE_DIRS}")
 target_include_directories(CacheTest PRIVATE ${cachelib_INCLUDE_DIRS})
+
+# Add your project source files
+add_executable(TestCacheInterface test/TestCacheLibInterface.cpp ${CPP_SOURCES})
+
+# Link cachelib to your project
+target_link_libraries(TestCacheInterface  cachelib )
+
+# Set include directories for cachelib
+#message(STATUS "cachelib_INCLUDE_DIRS: ${cachelib_INCLUDE_DIRS}")
+target_include_directories(TestCacheInterface PRIVATE ${cachelib_INCLUDE_DIRS})
+
 
 add_executable(TestNDPointsCluster test/TestNDPointsCluster.cpp ${CPP_SOURCES})
