@@ -14,73 +14,20 @@
  * limitations under the License.
  */
 
-#include "cachelib/allocator/CacheAllocator.h"
-#include "folly/init/Init.h"
 #include "adios2/common/ADIOSTypes.h"
 #include "adios2.h"
 #include <set>
-#include <QueryBox.h>
-#include <CacheFunctions.h>
+#include "QueryBox.h"
+#include "CacheLibInterface.h"
 #include <unordered_map>
 #include <string>
 #include <vector>
 #include <cstring>
 #include <iostream>
 #include "adios2/helper/adiosFunctions.h"
+#include <thread>
+#include <chrono>
 
-
-using namespace facebook::cachelib_examples;
-
-
-// Serialize QueryBox to a JSON string
-std::string serializeQueryBox(const QueryBox& box) {
-    nlohmann::json jsonBox;
-    jsonBox["start"] = box.start;
-    jsonBox["count"] = box.count;
-    return jsonBox.dump();
-}
-
-// Deserialize JSON string to a QueryBox
-QueryBox deserializeQueryBox(const std::string& jsonString) {
-    nlohmann::json jsonBox = nlohmann::json::parse(jsonString);
-    QueryBox box;
-    box.start = jsonBox["start"].get<adios2::Dims>();
-    box.count = jsonBox["count"].get<adios2::Dims>();
-    return box;
-}
-
-
-// Custom comparison operator for QueryBox
-bool operator<(const QueryBox& lhs, const QueryBox& rhs) {
-    return lhs.start < rhs.start || (lhs.start == rhs.start && lhs.count < rhs.count);
-}
-
-// Custom comparison operator for std::set<QueryBox>
-bool operator<(const std::set<QueryBox>& lhs, const std::set<QueryBox>& rhs) {
-    return lhs.size() < rhs.size() ||
-           (lhs.size() == rhs.size() && std::lexicographical_compare(
-                   lhs.begin(), lhs.end(), rhs.begin(), rhs.end()));
-}
-
-// Custom comparison operator for std::unordered_map<std::string, std::set<QueryBox>>
-bool operator<(const std::unordered_map<std::string, std::set<QueryBox>>& lhs,
-               const std::unordered_map<std::string, std::set<QueryBox>>& rhs) {
-    return lhs.size() < rhs.size() ||
-           (lhs.size() == rhs.size() && std::lexicographical_compare(
-                   lhs.begin(), lhs.end(), rhs.begin(), rhs.end()));
-}
-
-
-// determine if a query box is contained in another query box
-bool isContained(const QueryBox& outer, const QueryBox& inner) {
-    for (size_t i = 0; i < outer.start.size(); i++) {
-        if (outer.start[i] > inner.start[i] ||
-            outer.start[i] + outer.count[i] < inner.start[i] + inner.count[i]) {
-            return false;
-        }
-    }
-    return true;
-}
 
 // determine if a query box is interacted in another query box, return intersection part as a new query box
 bool isInteracted(const QueryBox& outer, const QueryBox& inner, QueryBox& intersection) {
@@ -95,43 +42,6 @@ bool isInteracted(const QueryBox& outer, const QueryBox& inner, QueryBox& inters
                                      intersection.start[i]);
     }
     return true;
-}
-
-
-// def a function to remove the intersection part from the outer box
-QueryBox doExclude2d(const QueryBox& outer, const QueryBox& intersection, bool isRowMajor, bool isExcludeHorizontal){
-    QueryBox remaining;
-    remaining.start = outer.start;
-    remaining.count = outer.count;
-    if (isRowMajor && isExcludeHorizontal) {
-        remaining.count[0] = intersection.start[0] - outer.start[0];
-        remaining.count[1] = outer.count[1];
-        if (outer.start[0] == intersection.start[0]) {
-            remaining.start[0] = intersection.start[0] + intersection.count[0];
-            remaining.count[0] = outer.start[0] + outer.count[0] - remaining.start[0];
-        }
-    }
-    return remaining;
-}
-
-
-// def a function to remove the intersection part from the outer box
-QueryBox doExclude3d(const QueryBox& outer, const QueryBox& intersection){
-    QueryBox remaining;
-    remaining.start = outer.start;
-    remaining.count = outer.count;
-    remaining.count[0] = intersection.start[0] - outer.start[0];
-    remaining.count[1] = intersection.start[1] - outer.start[1];
-    remaining.count[2] = outer.count[2];
-    if (outer.start[0] == intersection.start[0]) {
-        remaining.start[0] = intersection.start[0] + intersection.count[0];
-        remaining.count[0] = outer.start[0] + outer.count[0] - remaining.start[0];
-    }
-    if (outer.start[1] == intersection.start[1]) {
-        remaining.start[1] = intersection.start[1] + intersection.count[1];
-        remaining.count[1] = outer.start[1] + outer.count[1] - remaining.start[1];
-    }
-    return remaining;
 }
 
 // if a query box is interacted with another query box, return the remaining part as a set of query boxes
@@ -178,16 +88,6 @@ std::set<QueryBox> getRemaining(const QueryBox& outer, const QueryBox& intersect
                 continue;
             }
 
-//            // second, cut from head of the first dimension
-//            if (outerCopy.start[0] + outerCopy.count[0] == intersection.start[0] + intersection.count[0] and outerCopy.count[0] != intersection.count[0]){
-//                box.count[0] = intersection.start[0] - outerCopy.start[0];
-//                remaining.insert(box);
-//                outerCopy.start[0] = intersection.start[0];
-//                outerCopy.count[0] = intersection.count[0];
-//                continue;
-//            }
-
-
             // third, cut from tail of the second dimension
             if (outerCopy.start[1] == intersection.start[1] and outerCopy.count[1] != intersection.count[1]) {
                 box.start[1] = intersection.start[1] + intersection.count[1];
@@ -206,15 +106,7 @@ std::set<QueryBox> getRemaining(const QueryBox& outer, const QueryBox& intersect
                 outerCopy.start[1] = intersection.start[1];
                 continue;
             }
-
-//            // fourth, cut from head of the second dimension
-//            if (outerCopy.start[1] + outerCopy.count[1] == intersection.start[1] + intersection.count[1]){
-//                box.count[1] = intersection.start[1] - outerCopy.start[1];
-//                remaining.insert(box);
-//                outerCopy.start[1] = intersection.start[1];
-//                outerCopy.count[1] = intersection.count[1];
-//                continue;
-//            }
+            
         }
     }
     return remaining;
@@ -278,12 +170,78 @@ void copyData(const QueryBox& outer, const QueryBox& cacheBox,const QueryBox& in
     }
 }
 
+
+// Your cache map type
+using CacheMap = std::unordered_map<std::string, std::set<QueryBox>>;
+
+// Serialize the cache map to a JSON file
+void serializeCacheMap(const CacheMap& cacheMap, const std::string& filename) {
+    nlohmann::json jsonData;
+
+    for (const auto& entry : cacheMap) {
+        nlohmann::json queryBoxesJson;
+        for (const auto& queryBox : entry.second) {
+            nlohmann::json queryBoxJson;
+            queryBoxJson["start"] = queryBox.start;
+            queryBoxJson["count"] = queryBox.count;
+            queryBoxesJson.push_back(queryBoxJson);
+        }
+
+        jsonData[entry.first] = queryBoxesJson;
+    }
+
+    std::ofstream file(filename);
+    if (file.is_open()) {
+        file << jsonData.dump(4); // Indent with 4 spaces for readability
+        file.close();
+    } else {
+        std::cerr << "Failed to open the file for writing." << std::endl;
+    }
+}
+
+// Deserialize the cache map from a JSON file
+CacheMap deserializeCacheMap(const std::string& filename) {
+    CacheMap cacheMap;
+    std::ifstream file(filename);
+    if (file.is_open()) {
+        nlohmann::json jsonData;
+        file >> jsonData;
+        file.close();
+
+        for (const auto& entry : jsonData.items()) {
+            std::set<QueryBox> queryBoxes;
+            for (const auto& queryBoxJson : entry.value()) {
+                QueryBox queryBox;
+                queryBox.start = queryBoxJson["start"].get<adios2::Dims>();
+                queryBox.count = queryBoxJson["count"].get<adios2::Dims>();
+                // Retrieve other members of QueryBox from queryBoxJson as needed
+                queryBoxes.insert(queryBox);
+            }
+
+            cacheMap[entry.key()] = queryBoxes;
+        }
+    } else {
+        std::cerr << "Failed to open the file for reading." << std::endl;
+    }
+
+    return cacheMap;
+}
+
+
+
 int main(int argc, char** argv) {
     folly::init(&argc, &argv);
 
     initializeCache();
 
-    std::unordered_map<std::string, std::set<QueryBox>> cacheMap;
+//    get("blah");
+//    std::unordered_map<std::string, std::set<QueryBox>> cacheMap;
+    // initialize cache map
+    std::string cacheMapFilename = "./cacheMap.json";
+    CacheMap cacheMap;
+    if (std::filesystem::exists(cacheMapFilename)) {
+        cacheMap = deserializeCacheMap(cacheMapFilename);
+    }
 
     std::string filename = "/data/gc/rocksdb-index/ADIOS2/adios2-build/output/heat.bp5";
 
@@ -306,42 +264,43 @@ int main(int argc, char** argv) {
 
     // init a list of query box by setting start and count
     std::vector<QueryBox> queryBoxList;
-    QueryBox queryBox1;
-    queryBox1.start = {100, 150};
-    queryBox1.count = {200, 100};
-    queryBoxList.push_back(queryBox1);
+   QueryBox queryBox1;
+   queryBox1.start = {100, 150};
+   queryBox1.count = {200, 100};
+   queryBoxList.push_back(queryBox1);
 
-    QueryBox queryBox3;
-    queryBox3.start = {300, 330};
-    queryBox3.count = {200, 100};
-    queryBoxList.push_back(queryBox3);
+   QueryBox queryBox3;
+   queryBox3.start = {300, 330};
+   queryBox3.count = {200, 100};
+   queryBoxList.push_back(queryBox3);
 
-    QueryBox queryBox2;
-    queryBox2.start = {200, 240};
-    queryBox2.count = {200, 100};
-    queryBoxList.push_back(queryBox2);
+   QueryBox queryBox2;
+   queryBox2.start = {200, 240};
+   queryBox2.count = {200, 100};
+   queryBoxList.push_back(queryBox2);
 
-    QueryBox queryBox4;
-    queryBox4.start = {500, 520};
-    queryBox4.count = {200, 100};
-    queryBoxList.push_back(queryBox4);
+   QueryBox queryBox4;
+   queryBox4.start = {500, 520};
+   queryBox4.count = {200, 100};
+   queryBoxList.push_back(queryBox4);
 
-    QueryBox queryBox5;
-    queryBox5.start = {0, 200};
-    queryBox5.count = {500, 1};
-    queryBoxList.push_back(queryBox5);
+   QueryBox queryBox5;
+   queryBox5.start = {0, 200};
+   queryBox5.count = {500, 1};
+   queryBoxList.push_back(queryBox5);
 
-    QueryBox queryBox6;
-    queryBox6.start = {490, 490};
-    queryBox6.count = {400, 400};
-    queryBoxList.push_back(queryBox6);
+   QueryBox queryBox6;
+   queryBox6.start = {490, 490};
+   queryBox6.count = {400, 400};
+   queryBoxList.push_back(queryBox6);
 
 
     for (auto& queryBox : queryBoxList) {
         // print current for loop number
         step++;
         std::cout << "current query num: " << step << std::endl;
-
+        std::cout << "current query box: " << serializeQueryBox(queryBox) << std::endl;
+//	    std::this_thread::sleep_for(std::chrono::seconds(3));
 
         if (firstStep) {
             // Promise that we are not going to change the variable sizes
@@ -379,33 +338,39 @@ int main(int argc, char** argv) {
                         std::string queryKey = queryTypeKey + "_" + serializeQueryBox(box);
 
                         auto handle = get(queryKey);
-                        if (handle) {
+                        if (handle && handle.isReady()) {
                             // CacheLib hit
                             std::string value(reinterpret_cast<const char *>(handle->getMemory()), handle->getSize());
                             // intersection.data reserve size
                             intersection.data = new double[box.size()];
-                            std::cout << box.size() << std::endl;
+                            // std::cout << box.size() << std::endl;
 //                        std::cout << value.size() << std::endl;
                             std::memcpy(intersection.data, value.data(), box.size() * sizeof(double));
 
                             // copy to the final result
                             copyData(queryBox, box, intersection, myDouble.data());
-                            std::cout << value.size() << std::endl;
-                        }
+                            // std::cout << value.size() << std::endl;
 
-                        // update remaining part, union of remainingNew and remaining
-                        for (auto &box1: getRemaining(remaining_box, intersection)) {
-                            remainingNew.insert(box1);
-                        }
+                            // update remaining part, union of remainingNew and remaining
+                            for (auto &box1: getRemaining(remaining_box, intersection)) {
+                                remainingNew.insert(box1);
+                            }
 
+                            delete[] intersection.data;
+                        } else {
+                            // CacheLib miss
+                            remainingNew.insert(remaining_box);
+                        }
                     } else {
-                        // CacheLib miss
                         // update remaining part, union of remainingNew and remaining
                         remainingNew.insert(remaining_box);
                     }
 
                 }
                 remaining = remainingNew;
+                if (remaining.empty()) {
+                    break;
+                }
             }
 
         }
@@ -414,23 +379,24 @@ int main(int argc, char** argv) {
             std::cout << "remaining: " << serializeQueryBox(box1) << std::endl;
         }
 
-        std::vector<double> selectResult;
-        // remaining part of query box
-        for (auto &remaining_box: remaining) {
-            // fetch result
 
-            selectResult.clear();
-            std::cout << remaining_box.size() << std::endl;
-            selectResult.resize(std::max(remaining_box.size(), selectResult.size()));
-        }
+        // remaining part of query box
+//        for (auto &remaining_box: remaining) {
+//            // fetch result
+//
+//            selectResult.clear();
+//            // std::cout << remaining_box.size() << std::endl;
+//            selectResult.resize(std::max(remaining_box.size(), selectResult.size()));
+//        }
 
         for (auto &remaining_box: remaining) {
             // print current step
 //            std::cout << bpReader.CurrentStep() << std::endl;
-
+            std::vector<double> selectResult;
             x_100_position.SetSelection(
                     adios2::Box<adios2::Dims>(remaining_box.start, remaining_box.count));
 
+	        std::cout << "read from remote: " << serializeQueryBox(remaining_box) << std::endl;
 
             // Arrays are read by scheduling one or more of them
             // and performing the reads at once
@@ -448,23 +414,35 @@ int main(int argc, char** argv) {
             cacheBox.count = {0, 0};
             copyData(queryBox, remaining_box_new, remaining_box_new, myDouble.data());
 //            std::cout << bpReader.CurrentStep() << std::endl;
-        }
-        selectResult.clear();
-        // insert queryBox into cacheMap
-        cacheMap[queryTypeKey].emplace(queryBox);
 
-        std::cout << myDouble.size() << std::endl;
-        std::cout << queryBox.size() << std::endl;
+            cacheMap[queryTypeKey].emplace(remaining_box_new);
+            std::string queryRemainingKey = queryTypeKey + "_" + serializeQueryBox(remaining_box_new);
+            auto res = put(queryRemainingKey,
+                       std::string(reinterpret_cast<const char *>(selectResult.data()), remaining_box_new.size() * sizeof(double)));
+
+            std::ignore = res;
+            assert(res);
+
+            selectResult.clear();
+        }
+
+
+
+        // std::cout << myDouble.size() << std::endl;
+        // std::cout << queryBox.size() << std::endl;
 
 
 
         // CacheLib insert this query result
-        std::string queryKey = queryTypeKey + "_" + serializeQueryBox(queryBox);
-        auto res = put(queryKey,
-                       std::string(reinterpret_cast<const char *>(myDouble.data()), queryBox.size() * sizeof(double)));
-
-        std::ignore = res;
-        assert(res);
+        // insert queryBox into cacheMap
+//        cacheMap[queryTypeKey].emplace(queryBox);
+//        std::string queryKey = queryTypeKey + "_" + serializeQueryBox(queryBox);
+//
+//        auto res = put(queryKey,
+//                       std::string(reinterpret_cast<const char *>(myDouble.data()), queryBox.size() * sizeof(double)));
+//
+//        std::ignore = res;
+//        assert(res);
 
         // direct read query box, to finish data correctness check
 //        std::cout << bpReader.CurrentStep() << std::endl;
@@ -483,12 +461,16 @@ int main(int argc, char** argv) {
                 std::cout << "error at element:" << std::to_string(i) << std::endl;
             }
         }
+        std::cout << "Result Correct!" << std::endl;
         myDouble.clear();
+        directSelectResult.clear();
 
 
 
 
     }
     bpReader.EndStep();
+
+    serializeCacheMap(cacheMap, "cacheMap.json");
     destroyCache();
 }

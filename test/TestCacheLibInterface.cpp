@@ -1,4 +1,4 @@
-#include "CachelibInterface.h"
+#include "CacheLibInterface.h"
 #include <iostream>
 
 // sample usage: ./CacheTest -write=true -read=true -read_inverse=false -operation_num=100000 > ../log/testCacheLib.log

@@ -1,0 +1,12 @@
+# Cache for ADIOS 2
+
+
+
+
+
+
+
+### TODO List
+1. replace current bitmap vector<bool> directly to a vector<unsigned char> to save memory
+2. expand getRemaining2D to N dimension
+3. How to invalid CacheBitmap data when it automatically evicted by the CacheLib?

@@ -1,0 +1,37 @@
+//
+// Created by cguo51 on 7/13/23.
+//
+
+
+
+/*
+ * std::copy(src, src + payloadStride, reinterpret_cast<char *>(dest));
+
+[src, src + payloadStride) copy to dest
+
+reinterpret_cast<char *>(dest): It casts the destination pointer (dest) to a char* type. This is necessary
+ because std::copy requires the source and destination ranges to have the same type.
+
+ rbegin() is a function used in C++ to obtain an iterator pointing to the last element (reverse beginning) of a container.
+
+     std::vector<int> numbers = {1, 2, 3, 4, 5};
+
+    // Iterate over the vector in reverse order
+    for (auto it = numbers.rbegin(); it != numbers.rend(); ++it) {
+        std::cout << *it << " ";
+    }
+
+    The output would be: 5 4 3 2 1.
+
+ std::memcpy(dest, src, size);
+ std::copy(src.begin(), src.end(), std::back_inserter(dest));
+
+In general, std::memcpy is more suitable for copying raw memory, especially when dealing with large blocks of data,
+ such as binary data or arrays of primitive types. On the other hand, std::copy is better suited for copying elements
+ between containers, supporting different container types and allowing more fine-grained control over the copying process.
+
+ * */
+
+
+
+
